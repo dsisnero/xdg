@@ -143,7 +143,7 @@ module XDG
   end
 
   private def self.parse_paths(value : String?) : Array(String)
-    Path[value.to_s].parts
+    value.to_s.split(Process::PATH_SEPARATOR, remove_empty: true)
   end
 
   private def self.macos_app?

@@ -7,26 +7,25 @@ require "system/group"
 module SpecHelpers
 
   def create_runtime_dir(path : String)
-    user = System::User.find_by id: LibC.getuid.to_s
+    user = System::User.find_by(id: Process.uid.to_s)
+    raise "User #{Process.uid} not found" unless user
+    
     parent = File.dirname(path)
     Dir.mkdir_p(parent) unless Dir.exists?(parent)
 
-    Dir.mkdir(path)
+    Dir.mkdir_p(path)
     File.chmod(path, 0o700)
-    pp! user
-    pp! user.id
-    pp! user.group_id
-    # File.chown(path, uid: user.id, gid: user.group_id)
+    File.chown(path, uid: user.id.to_i, gid: user.group_id.to_i)
   end
 
   # Creates a temporary directory within spec/tmp and cleans up after
   def in_temp_dir(&)
     base_temp_dir = File.join("spec", "tmp")
     Dir.mkdir_p(base_temp_dir) unless Dir.exists?(base_temp_dir)
-
-    temp_dir = File.join(base_temp_dir, Random::Secure.rand(8).to_s)
-    Dir.mkdir(temp_dir)
-
+    
+    temp_dir = File.join(base_temp_dir, Random::Secure.hex(8))
+    Dir.mkdir_p(temp_dir)
+    
     begin
       Dir.cd(temp_dir) { yield(temp_dir) }
     ensure
@@ -35,42 +34,41 @@ module SpecHelpers
   end
 
   def with_env(vars : Hash(String, String), &)
-    tmp = {} of String => String
-    vars.each do |k, v|
-      tmp[k] = ENV[k]
-    end
-
-    vars.each do |k, v|
+    original = {} of String => String?
+    vars.each_key do |k|
+      original[k] = ENV[k]?
       ENV[k] = vars[k]
     end
 
-    value = yield
-
-    vars.each do |k, v|
-      ENV[key] = tmp[k]
+    yield
+  ensure
+    vars.each_key do |k|
+      if original[k]?
+        ENV[k] = original[k].not_nil!
+      else
+        ENV.delete(k)
+      end
     end
-    value
   end
 
   # Clears XDG-related environment variables temporarily
   def with_xdg_clean_env(&)
-    tmp = {} of String => String
-    keys = %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
-      XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT]
-    keys.each do |k|
-      tmp[k] = ENV[k]
-    end
-
-    keys.each do |k|
-      ENV.delete(k)
-    end
+    original = {} of String => String?
+    {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+                    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
+      original[{{var}}] = ENV[{{var}}]?
+      ENV.delete({{var}})
+    {% end %}
 
     yield
-
-    keys.each do |k|
-      if val = tmp[k]?
-        ENV[k] = val
+  ensure
+    {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+                    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
+      if original[{{var}}]?
+        ENV[{{var}}] = original[{{var}}].not_nil!
+      else
+        ENV.delete({{var}})
       end
-    end
+    {% end %}
   end
 end
