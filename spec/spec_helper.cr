@@ -31,7 +31,8 @@ module SpecHelpers
     base_temp_dir = File.join("spec", "tmp")
     Dir.mkdir_p(base_temp_dir) unless Dir.exists?(base_temp_dir)
     
-    temp_dir = File.join(base_temp_dir, Random::Secure.hex(8))
+    # Use absolute path to avoid directory resolution issues
+    temp_dir = File.expand_path(File.join(base_temp_dir, Random::Secure.hex(8)))
     Dir.mkdir_p(temp_dir)
     
     begin
