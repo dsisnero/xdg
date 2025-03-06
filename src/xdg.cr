@@ -70,12 +70,7 @@ module XDG
     
     info = File.info(path)
     return false unless info.directory?
-    
-    # Platform-specific owner check
-    {% if !flag?(:win32) %}
-      return false unless info.owner_id == Process.uid
-    {% end %}
-
+  
     info.permissions.owner_write?
   end
 
@@ -148,7 +143,7 @@ module XDG
   end
 
   private def self.parse_paths(value : String?) : Array(String)
-    value.to_s.split(Process::OS_PATH_SEPARATOR, remove_empty: true)
+    Path[value.to_s].parts
   end
 
   private def self.macos_app?
