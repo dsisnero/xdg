@@ -172,3 +172,27 @@ describe XDG do
     end
   end
 end
+require "./spec_helper"
+
+describe XDG do
+  # Add runtime dir specific helper
+  def create_runtime_dir(path : String)
+    parent = File.dirname(path)
+    Dir.mkdir_p(parent) unless Dir.exists?(parent)
+    
+    Dir.mkdir(path)
+    File.chmod(path, 0o700)
+    File.chown(path, uid: Process.uid, gid: Process.gid)
+  end
+
+  describe "base directories" do
+    it "uses temporary directories in tests" do
+      in_temp_dir do |dir|
+        # Test that uses temp dir
+        XDG.config_home.should start_with(dir)
+      end
+    end
+  end
+
+  # ... rest of specs ...
+end
