@@ -71,7 +71,11 @@ module XDG
     info = File.info(path)
     return false unless info.directory?
   
-    info.permissions.owner_write?
+    # Check for proper permissions and ownership
+    current_uid = Process.uid
+    info.permissions.other_write? == false &&
+      info.owner == current_uid &&
+      info.group == current_uid
   end
 
   private def self.default_config_home : String

@@ -51,7 +51,9 @@ describe XDG do
     it "rejects world-writable directories" do
       in_temp_dir do |dir|
         bad_dir = File.join(dir, "unsafe")
-        Dir.mkdir(bad_dir)
+        # Create with safe permissions first
+        Dir.mkdir(bad_dir, 0o755)
+        # Then make world-writable
         File.chmod(bad_dir, 0o777)
 
         XDG.valid_runtime_dir?(bad_dir).should be_false
