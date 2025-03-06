@@ -6,7 +6,7 @@ describe XDG do
 
   describe "base directory accessors" do
     {% for dir in %w[config data cache state] %}
-      it "returns #{dir}_home from environment" do
+      it "returns {{dir.id}}_home from environment" do
         with_xdg_clean_env do
           ENV["XDG_{{dir.id.upcase}}_HOME"] = "/custom/{{dir.id}}"
           XDG.{{dir.id}}_home.should eq "/custom/{{dir.id}}"
