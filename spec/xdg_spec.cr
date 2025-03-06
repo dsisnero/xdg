@@ -2,14 +2,18 @@ require "./spec_helper"
 
 describe XDG do
   # Specialized helper for runtime directory creation
-  def create_runtime_dir(path : String)
-    parent = File.dirname(path)
-    Dir.mkdir_p(parent) unless Dir.exists?(parent)
-    
-    Dir.mkdir(path)
-    File.chmod(path, 0o700)
-    File.chown(path, uid: Process.uid, gid: Process.gid)
+  module SpecHelpers
+    def create_runtime_dir(path : String)
+      parent = File.dirname(path)
+      Dir.mkdir_p(parent) unless Dir.exists?(parent)
+      
+      Dir.mkdir(path)
+      File.chmod(path, 0o700)
+      File.chown(path, uid: Process.uid, gid: Process.gid)
+    end
   end
+
+  include SpecHelpers
 
   describe "base directory accessors" do
     {% for dir in %w[config data cache state] %}
