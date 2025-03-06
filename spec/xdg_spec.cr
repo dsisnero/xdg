@@ -1,8 +1,9 @@
 require "./spec_helper"
 
+include SpecHelpers
+
 describe XDG do
   # Specialized helper for runtime directory creation
-
 
   describe "base directory accessors" do
     {% for dir in %w[config data cache state] %}
@@ -37,7 +38,7 @@ describe XDG do
         with_xdg_clean_env do
           ENV["XDG_DATA_HOME"] = File.join(dir, "data")
           XDG.ensure_directories!(0o750)
-          
+
           info = File.info(ENV["XDG_DATA_HOME"])
           info.permissions.should eq File::Permissions.new(0o750)
           info.directory?.should be_true
@@ -52,7 +53,7 @@ describe XDG do
         bad_dir = File.join(dir, "unsafe")
         Dir.mkdir(bad_dir)
         File.chmod(bad_dir, 0o777)
-        
+
         XDG.valid_runtime_dir?(bad_dir).should be_false
       end
     end
@@ -61,7 +62,7 @@ describe XDG do
       in_temp_dir do |dir|
         valid_dir = File.join(dir, "secure")
         create_runtime_dir(valid_dir)
-        
+
         XDG.valid_runtime_dir?(valid_dir).should be_true
       end
     end
