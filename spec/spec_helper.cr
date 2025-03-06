@@ -4,10 +4,18 @@ require "file_utils"
 require "system/user"
 require "system/group"
 
+class Process
+
+  def self.uid
+    LibC.getuid.to_s
+  end
+
+end
+
 module SpecHelpers
 
   def create_runtime_dir(path : String)
-    user = System::User.find_by(id: Process.uid.to_s)
+    user = System::User.find_by(id: Process.uid)
     raise "User #{Process.uid} not found" unless user
     
     parent = File.dirname(path)
@@ -51,24 +59,32 @@ module SpecHelpers
     end
   end
 
-  # Clears XDG-related environment variables temporarily
-  def with_xdg_clean_env(&)
-    original = {} of String => String?
-    {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
-                    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
-      original[{{var}}] = ENV[{{var}}]?
-      ENV.delete({{var}})
-    {% end %}
+ def with_xdg_clean_env(&)
+   # Explicit type declaration
+   original = Hash(String, String?).new
 
-    yield
-  ensure
-    {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
-                    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
-      if original[{{var}}]?
-        ENV[{{var}}] = original[{{var}}].not_nil!
-      else
-        ENV.delete({{var}})
-      end
-    {% end %}
-  end
+   {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+                   XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
+     original[{{var}}] = ENV[{{var}}]?
+     ENV.delete({{var}})
+   {% end %}
+
+   yield
+ ensure
+   {% for var in %w[XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+                   XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_RUNTIME_DIR XDG_STRICT] %}
+     # Changed from original[{{var}}]? to original.has_key?({{var}})
+     if original.not_nil!.has_key?({{var}})
+       value = original.not_nil![{{var}}]
+       if value
+         ENV[{{var}}] = value
+       else
+         ENV.delete({{var}})
+       end
+     end
+   {% end %}
+
+ end
+  
+
 end
