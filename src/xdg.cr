@@ -1,3 +1,11 @@
+class Process
+
+  def self.uid
+    LibC.getuid.to_s
+  end
+
+end
+     
 module XDG
   # Constants for platform-specific paths
   MACOS_APP_SUPPORT    = File.join(Path.home, "Library", "Application Support")
@@ -74,8 +82,8 @@ module XDG
     # Check for proper permissions and ownership
     current_uid = Process.uid
     info.permissions.other_write? == false &&
-      info.owner == current_uid &&
-      info.group == current_uid
+      info.owner_id == current_uid &&
+      info.group_id == current_uid
   end
 
   private def self.default_config_home : String

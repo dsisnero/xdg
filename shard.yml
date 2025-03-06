@@ -1,0 +1,13 @@
+name: xdg
+version: 0.1.0
+
+authors:
+  - Dominic Sisneros <dsisnero@gmail.com>
+
+targets:
+  xdg:
+    main: src/xdg.cr
+
+crystal: '>= 1.15.1'
+
+license: MIT
