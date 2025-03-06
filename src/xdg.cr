@@ -67,9 +67,16 @@ module XDG
   # Validates if a runtime directory meets XDG security requirements
   def self.valid_runtime_dir?(path : String) : Bool
     return false unless Dir.exists?(path)
-
+    
     info = File.info(path)
-    info.directory? && info.owner_id == Process.uid && info.permissions.owner_write?
+    return false unless info.directory?
+    
+    # Platform-specific owner check
+    {% if !flag?(:win32) %}
+      return false unless info.owner_id == Process.uid
+    {% end %}
+
+    info.permissions.owner_write?
   end
 
   private def self.default_config_home : String
