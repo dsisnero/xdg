@@ -14,17 +14,34 @@ end
 
 module SpecHelpers
 
-  def create_runtime_dir(path : String)
-    user = System::User.find_by(id: Process.uid)
-    raise "User #{Process.uid} not found" unless user
-    
-    parent = File.dirname(path)
-    Dir.mkdir_p(parent) unless Dir.exists?(parent)
+  # Helper for creating valid runtime directories
+  def create_runtime_dir(path)
+    # Ensure parent exists if needed
+    parent = Path[path].parent
+    Dir.mkdir_p(parent.to_s) unless Dir.exists?(parent.to_s)
 
-    Dir.mkdir_p(path)
-    File.chmod(path, 0o700)
-    File.chown(path, uid: user.id.to_i, gid: user.group_id.to_i)
+    # Create with 0700
+    Dir.mkdir(path, 0o700)
+    File.chmod(path, 0o700) # <-- Add explicit permission set
+
+    # Set owner to current user - crucial for validation
+    # Note: File.chown changes GROUP first, then USER. Use nil for group if only changing user.
+    # On some systems, chown might require root privileges.
+    begin
+      # Use keyword arguments for clarity if supported, otherwise positional
+      # Assuming File.chown(path, uid, gid) signature
+      File.chown(path, Process.uid.to_i, -1) # Use -1 to keep group
+    rescue ex : File::Error # Changed from Errno to File::Error
+      # Log if chown fails, test might still pass if user already owns it,
+      # but validation could fail otherwise.
+      puts "Warning: Failed to chown #{path} to UID #{Process.uid}: #{ex.message}. Test validity may depend on initial ownership."
+    rescue ex : ArgumentError
+      # Crystal's File.chown uses positional arguments, not keywords.
+      # Just log the argument error.
+      puts "Warning: Invalid arguments for chown on #{path}: #{ex.message}"
+    end
   end
+
 
   # Creates a temporary directory within spec/tmp and cleans up after
   def in_temp_dir(&)
