@@ -306,11 +306,17 @@ module XDG
     return false unless info && info.directory?
 
     current_uid = Process.uid.to_i
-    # Check owner matches and no world/other write permissions
-    # Also ensure no group/other permissions at all (strict 0o700)
-    info.owner_id == current_uid &&
-      !info.permissions.other_write? &&
-      (info.permissions.value & 0o077) == 0 # Ensure no group/other permissions
+    valid = info.owner_id == current_uid &&
+            !info.permissions.other_write? &&
+            (info.permissions.value & 0o077) == 0
+
+    unless valid
+      puts "\n[DEBUG] Runtime dir validation failed for: #{path_obj}"
+      puts "Owner: #{info.owner_id} (Current: #{current_uid})"
+      puts "Permissions: #{info.permissions.value.to_s(8)}"
+    end
+
+    valid
   end
 
 

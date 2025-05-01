@@ -76,16 +76,20 @@ describe XDG do
       end
     end
 
-   it "accepts properly secured directories" do
-     in_temp_dir do |dir|
-       valid_dir = File.join(dir, "secure")
-       create_runtime_dir(valid_dir) # Uses the helper from spec_helper
+  it "accepts properly secured directories" do
+    in_temp_dir do |dir|
+      valid_dir = File.join(dir, "secure")
+      # Create with explicit permissions and ownership
+      Dir.mkdir_p(valid_dir, 0o700)
+      File.chmod(valid_dir, 0o700)
 
-       # create_runtime_dir already handles permissions and ownership.
-       # Simplify ownership check - remove unnecessary chown attempts
-       XDG.valid_runtime_dir?(Path.new(valid_dir)).should be_true
-     end
-   end
+      # Verify directory state before validation
+      puts "\n[TEST SETUP] Directory permissions: #{File.info(valid_dir).permissions.value.to_s(8)}"
+      puts "[TEST SETUP] Directory owner: #{File.info(valid_dir).owner_id}"
+
+      XDG.valid_runtime_dir?(Path.new(valid_dir)).should be_true
+    end
+  end
   end
 
   describe "platform defaults" do
