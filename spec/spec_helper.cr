@@ -85,6 +85,18 @@ module SpecHelpers
    {% end %}
 
  end
-  
+
+  def in_temp_dir(&)
+    tempdir = File.join(Dir.tempdir, "xdg_spec_#{Random::Secure.hex(8)}")
+    Dir.mkdir(tempdir)
+
+    begin
+      File.chdir(tempdir) do
+        yield Path.new(tempdir)
+      end
+    ensure
+      FileUtils.rm_rf(tempdir) if Dir.exists?(tempdir)
+    end
+  end
 
 end
