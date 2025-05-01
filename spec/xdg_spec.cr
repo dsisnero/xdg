@@ -2,6 +2,12 @@ require "./spec_helper"
 
 # Define SpecHelpers module if it doesn't exist or add to it
 module SpecHelpers
+  # Constants for XDG environment variables
+  XDG_VARS = %w(
+    XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
+    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_STRICT
+  )
+
   # Helper to run code within a temporary directory
   def in_temp_dir(&)
     Dir.mktmpdir do |dir|
@@ -14,10 +20,6 @@ module SpecHelpers
   # Helper to temporarily modify environment variables
   def with_xdg_clean_env(&)
     original_env = {} of String => String?
-    XDG_VARS = %w(
-      XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
-      XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_STRICT
-    )
 
     XDG_VARS.each do |var|
       original_env[var] = ENV[var]?
