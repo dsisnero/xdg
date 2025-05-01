@@ -29,8 +29,8 @@ module XDG
     def initialize(message, path : Path | String, details : String, cause : Exception? = nil)
       path_str = path.is_a?(Path) ? path.to_s : path.as(String)
       super(message, {
-        "path" => path_str,
-        "violation" => details
+        "path"      => path_str,
+        "violation" => details,
       }, cause)
     end
   end
@@ -41,7 +41,7 @@ module XDG
   DEFAULT_DATA_DIRS_STR   = "/usr/local/share:/usr/share"
   # Note: These are parsed into Array(Path) by config_dirs/data_dirs methods
   # Note: Default runtime dir needs UID, handled in default_runtime_dir
-  DEFAULT_RUNTIME_BASE    = Path["/run/user"] # Default base for runtime directories on Unix-like systems
+  DEFAULT_RUNTIME_BASE = Path["/run/user"] # Default base for runtime directories on Unix-like systems
 
   # Constants for platform-specific paths (macOS, Windows)
   MACOS_APP_SUPPORT    = Path.home / "Library" / "Application Support"
@@ -65,12 +65,10 @@ module XDG
 
   # Returns the XDG_STATE_HOME directory path
   def self.state_home : Path
-    begin
-      (env_path = ENV["XDG_STATE_HOME"]) ? Path.new(env_path) : default_state_home
-    rescue
-      # Fallback if Path.new fails or other issues arise
-      default_state_home
-    end
+    (env_path = ENV["XDG_STATE_HOME"]) ? Path.new(env_path) : default_state_home
+  rescue
+    # Fallback if Path.new fails or other issues arise
+    default_state_home
   end
 
   # Returns the XDG_RUNTIME_DIR directory path or nil
@@ -258,7 +256,6 @@ module XDG
     #   valid = false
     # end
 
-
     unless valid
       Log.warn {
         "Directory security validation failed: #{issues.join(", ")}. " \
@@ -271,7 +268,6 @@ module XDG
 
     valid
   end
-
 
   # Searches for a configuration file according to XDG Base Directory Spec.
   # Looks in $XDG_CONFIG_HOME, then $XDG_CONFIG_DIRS.
@@ -308,9 +304,8 @@ module XDG
     # Check permissions: Must be exactly 0700 (rwx------)
     # We mask with 0o777 to ignore higher bits like setuid/setgid/sticky
     actual_mode = info.permissions.value & 0o777
-    return actual_mode == 0o700
+    actual_mode == 0o700
   end
-
 
   # Returns the XDG_RUNTIME_DIR directory path, creating it if necessary, or raises an error.
   # Ensures the directory exists with 0o700 permissions.
@@ -323,36 +318,36 @@ module XDG
       raise RuntimeError.new("XDG_RUNTIME_DIR not set and no valid default runtime directory found for UID #{Process.uid}")
     end
 
-  begin
-    if Dir.exists?(dir_path.to_s)
-      # Always enforce permissions regardless of existing state
-      File.chmod(dir_path.to_s, 0o700)
+    begin
+      if Dir.exists?(dir_path.to_s)
+        # Always enforce permissions regardless of existing state
+        File.chmod(dir_path.to_s, 0o700)
 
-      # Re-validate after enforcing permissions
-      unless valid_runtime_dir?(dir_path)
-        info = File.info(dir_path.to_s)
-        details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
-        raise SecurityError.new("Failed to secure existing runtime directory", path: dir_path, details: details)
+        # Re-validate after enforcing permissions
+        unless valid_runtime_dir?(dir_path)
+          info = File.info(dir_path.to_s)
+          details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
+          raise SecurityError.new("Failed to secure existing runtime directory", path: dir_path, details: details)
+        end
+      else
+        # Create with strict permissions and enforce them again
+        Dir.mkdir_p(dir_path.to_s, 0o700)
+        File.chmod(dir_path.to_s, 0o700) # Redundant but ensures permissions
+        # Re-validate after creation and chmod
+        unless valid_runtime_dir?(dir_path)
+          info = File.info?(dir_path.to_s) # Use info? as creation might have failed subtly
+          details = info ? "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}" : "Could not get info after creation attempt"
+          Log.error {
+            "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}"
+          }
+          raise SecurityError.new("Created runtime directory has insecure permissions or ownership.", path: dir_path, details: details)
+        end
       end
-    else
-      # Create with strict permissions and enforce them again
-      Dir.mkdir_p(dir_path.to_s, 0o700)
-      File.chmod(dir_path.to_s, 0o700) # Redundant but ensures permissions
-      # Re-validate after creation and chmod
-      unless valid_runtime_dir?(dir_path)
-        info = File.info?(dir_path.to_s) # Use info? as creation might have failed subtly
-        details = info ? "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}" : "Could not get info after creation attempt"
-        Log.error {
-          "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}"
-        }
-        raise SecurityError.new("Created runtime directory has insecure permissions or ownership.", path: dir_path, details: details)
-      end
+    rescue e : File::Error
+      raise DirectoryError.new("Failed to secure runtime directory #{dir_path}", path: dir_path, cause: e)
     end
-  rescue e : File::Error
-    raise DirectoryError.new("Failed to secure runtime directory #{dir_path}", path: dir_path, cause: e)
-  end
 
-  dir_path
+    dir_path
   end
 
   # Helper to validate relative path components (prevents traversal, empty names, absolute paths)
@@ -496,9 +491,8 @@ module XDG
         next
       end
       path
-    end.uniq # Remove duplicates
+    end.uniq! # Remove duplicates
   end
-
 
   private def self.macos_app?
     {% if flag?(:darwin) %}
@@ -526,27 +520,27 @@ module XDG
               bytes_written = LibC.expand_environment_strings(raw_value, buffer.pointer, buffer_size)
 
               if bytes_written == 0
-                 # Error occurred during expansion
-                 Log.warn { "Failed to expand environment strings for registry value: #{raw_value}" }
-                 return nil
+                # Error occurred during expansion
+                Log.warn { "Failed to expand environment strings for registry value: #{raw_value}" }
+                return nil
               elsif bytes_written > buffer_size
-                 # Buffer too small, resize and retry
-                 buffer_size = bytes_written
-                 # No need to free buffer here, it goes out of scope
-                 next
+                # Buffer too small, resize and retry
+                buffer_size = bytes_written
+                # No need to free buffer here, it goes out of scope
+                next
               else
-                 # Success
-                 expanded = String.new(buffer.pointer, bytes_written - 1) # -1 to exclude null terminator
-                 return nil if expanded.empty?
+                # Success
+                expanded = String.new(buffer.pointer, bytes_written - 1) # -1 to exclude null terminator
+                return nil if expanded.empty?
 
-                 path = Path.new(expanded)
-                 # Basic check for absolute path - might need refinement for UNC etc.
-                 if path.absolute? || path.to_s.starts_with?("\\\\") # Handle UNC paths
-                   return path
-                 end
+                path = Path.new(expanded)
+                # Basic check for absolute path - might need refinement for UNC etc.
+                if path.absolute? || path.to_s.starts_with?("\\\\") # Handle UNC paths
+                  return path
+                end
 
-                 Log.warn { "Registry path '#{value_name}' resolved to relative path: #{expanded}" }
-                 return nil # Return nil for relative paths from registry
+                Log.warn { "Registry path '#{value_name}' resolved to relative path: #{expanded}" }
+                return nil # Return nil for relative paths from registry
               end
             end # end loop
           end

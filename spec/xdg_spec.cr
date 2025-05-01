@@ -1,35 +1,6 @@
 require "./spec_helper"
 
 # Define SpecHelpers module if it doesn't exist or add to it
-module SpecHelpers
-  # Constants for XDG environment variables
-  XDG_VARS = %w(
-    XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
-    XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_STRICT
-  )
-
-  # Helper to temporarily modify environment variables
-  def with_xdg_clean_env(&)
-    original_env = {} of String => String?
-
-    XDG_VARS.each do |var|
-      original_env[var] = ENV[var]?
-      ENV.delete(var)
-    end
-
-    yield
-  ensure
-    XDG_VARS.each do |var|
-      if value = original_env.not_nil![var]?
-        ENV[var] = value
-      else
-        ENV.delete(var)
-      end
-    end
-  end
-end
-
-include SpecHelpers
 
 describe XDG do
   # Specialized helper for runtime directory creation
@@ -74,9 +45,9 @@ describe XDG do
           File.chmod(existing_data_dir, 0o755) # "Wrong" permissions
 
           ENV["XDG_CONFIG_HOME"] = File.join(dir, "new_config") # Will be created
-          ENV["XDG_DATA_HOME"] = existing_data_dir # Already exists
-          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache") # New
-          ENV["XDG_STATE_HOME"] = File.join(dir, "state") # New
+          ENV["XDG_DATA_HOME"] = existing_data_dir              # Already exists
+          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache")       # New
+          ENV["XDG_STATE_HOME"] = File.join(dir, "state")       # New
 
           XDG.ensure_directories!(0o700)
 
@@ -133,11 +104,11 @@ describe XDG do
         # Note: Changing ownership often requires root privileges.
         # This test might only pass if run as root or if the OS allows user chown.
         can_chown = begin
-                      File.chown(runtime_dir, uid: Process.uid.to_u64 + 1)
-                      true # Chown succeeded
-                    rescue
-                      false # Chown failed (likely permission denied)
-                    end
+          File.chown(runtime_dir, uid: Process.uid.to_u64 + 1)
+          true # Chown succeeded
+        rescue
+          false # Chown failed (likely permission denied)
+        end
 
         unless can_chown
           puts "Skipping ownership test: Cannot change file ownership (requires root or specific capabilities)."
@@ -153,7 +124,9 @@ describe XDG do
       ensure
         # Clean up: Attempt to restore ownership if possible, ignore errors
         begin
+        if runtime_dir
           File.chown(runtime_dir, uid: Process.uid.to_u64) if can_chown && Dir.exists?(runtime_dir)
+        end
         rescue
         end
         ENV.delete("XDG_RUNTIME_DIR")
@@ -262,7 +235,7 @@ describe XDG do
           ENV["XDG_CONFIG_DIRS"] = "C:\\Config1;C:\\Config2" # Use Windows style for test
           XDG.config_dirs.should eq [Path["C:\\Config1"], Path["C:\\Config2"]]
         {% else %}
-           XDG.config_dirs.should eq [Path["/etc/config"], Path["/usr/local/config"]]
+          XDG.config_dirs.should eq [Path["/etc/config"], Path["/usr/local/config"]]
         {% end %}
       end
     end
@@ -273,30 +246,30 @@ describe XDG do
     # Validation is primarily done by valid_directory? and valid_runtime_dir?
 
     it "rejects world-writable directories via valid_directory?" do
-       in_temp_dir do |dir|
-         test_dir = Path[dir] / "world_writable"
-         Dir.mkdir(test_dir.to_s, 0o777)
-         XDG.valid_directory?(test_dir, 0o755).should be_false # Fails due to world-writable bit
-       end
+      in_temp_dir do |dir|
+        test_dir = Path[dir] / "world_writable"
+        Dir.mkdir(test_dir.to_s, 0o777)
+        XDG.valid_directory?(test_dir, 0o755).should be_false # Fails due to world-writable bit
+      end
     end
 
     it "rejects directories with permissions higher than max allowed via valid_directory?" do
-       in_temp_dir do |dir|
-         test_dir = Path[dir] / "too_permissive"
-         # Create with 755, but validate against 700 max
-         Dir.mkdir(test_dir.to_s, 0o755)
-         # Need to ensure owner matches current user for the test to be reliable on permissions
-         # File.chown(nil, Process.uid.to_i, test_dir.to_s) # chown might require root
+      in_temp_dir do |dir|
+        test_dir = Path[dir] / "too_permissive"
+        # Create with 755, but validate against 700 max
+        Dir.mkdir(test_dir.to_s, 0o755)
+        # Need to ensure owner matches current user for the test to be reliable on permissions
+        # File.chown(nil, Process.uid.to_i, test_dir.to_s) # chown might require root
 
-         # Assuming owner is correct, check permissions
-         # This test might be flaky if owner isn't current user in CI
-         if File.info(test_dir.to_s).owner_id == Process.uid.to_i
-           XDG.valid_directory?(test_dir, 0o700).should be_false # Fails 755 > 700
-           XDG.valid_directory?(test_dir, 0o755).should be_true # Passes 755 <= 755
-         else
-           puts "Skipping permission max test due to owner mismatch (UID: #{Process.uid}, Owner: #{File.info(test_dir.to_s).owner_id})"
-         end
-       end
+        # Assuming owner is correct, check permissions
+        # This test might be flaky if owner isn't current user in CI
+        if File.info(test_dir.to_s).owner_id == Process.uid.to_i
+          XDG.valid_directory?(test_dir, 0o700).should be_false # Fails 755 > 700
+          XDG.valid_directory?(test_dir, 0o755).should be_true  # Passes 755 <= 755
+        else
+          puts "Skipping permission max test due to owner mismatch (UID: #{Process.uid}, Owner: #{File.info(test_dir.to_s).owner_id})"
+        end
+      end
     end
   end
 
@@ -340,48 +313,48 @@ describe XDG do
         )
         # We can't guarantee it exists, but if it does, it should be absolute
         if path
-           path.should be_a(Path)
-           path.should be_absolute
-           # Check if it looks like a plausible AppData path
-           path.to_s.should contain("AppData\\Roaming")
+          path.should be_a(Path)
+          path.should be_absolute
+          # Check if it looks like a plausible AppData path
+          path.to_s.should contain("AppData\\Roaming")
         else
-           puts "Skipping Windows registry check for AppData: Key or value not found."
-           # Allow test to pass if key is missing, as it's environment-dependent
+          puts "Skipping Windows registry check for AppData: Key or value not found."
+          # Allow test to pass if key is missing, as it's environment-dependent
         end
       {% else %}
         pending! "Windows-only test"
       {% end %}
     end
 
-     it "reads Local AppData from registry" do
-       {% if flag?(:win32) %}
-         path = XDG.send(:windows_registry_path,
-           "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders",
-           "Local AppData"
-         )
-         if path
-           path.should be_a(Path)
-           path.should be_absolute
-           path.to_s.should contain("AppData\\Local")
-         else
-           puts "Skipping Windows registry check for Local AppData: Key or value not found."
-         end
-       {% else %}
-         pending! "Windows-only test"
-       {% end %}
-     end
+    it "reads Local AppData from registry" do
+      {% if flag?(:win32) %}
+        path = XDG.send(:windows_registry_path,
+          "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders",
+          "Local AppData"
+        )
+        if path
+          path.should be_a(Path)
+          path.should be_absolute
+          path.to_s.should contain("AppData\\Local")
+        else
+          puts "Skipping Windows registry check for Local AppData: Key or value not found."
+        end
+      {% else %}
+        pending! "Windows-only test"
+      {% end %}
+    end
 
-     it "handles non-existent registry keys gracefully" do
-       {% if flag?(:win32) %}
-         path = XDG.send(:windows_registry_path,
-           "Software\\NonExistentApp\\FakeKey",
-           "FakeValue"
-         )
-         path.should be_nil
-       {% else %}
-         pending! "Windows-only test"
-       {% end %}
-     end
+    it "handles non-existent registry keys gracefully" do
+      {% if flag?(:win32) %}
+        path = XDG.send(:windows_registry_path,
+          "Software\\NonExistentApp\\FakeKey",
+          "FakeValue"
+        )
+        path.should be_nil
+      {% else %}
+        pending! "Windows-only test"
+      {% end %}
+    end
   end
 
   # - find_config_file (found, not found, invalid name)
