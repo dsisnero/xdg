@@ -322,37 +322,36 @@ module XDG
       raise RuntimeError.new("XDG_RUNTIME_DIR not set and no valid default runtime directory found for UID #{Process.uid}")
     end
 
-    # Ensure it exists with correct permissions
-    begin
-      # Check existence before creating to avoid errors if it's a symlink etc.
-      unless Dir.exists?(dir_path.to_s)
-        Dir.mkdir_p(dir_path.to_s, 0o700)
-        # Re-check validity after creation
-        unless valid_runtime_dir?(dir_path)
-           # Log details before raising
-           info = File.info?(dir_path.to_s)
-           details = info ? "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}" : "Could not get info after creation"
-           Log.error {
-             "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}"
-           }
-           raise SecurityError.new("Created runtime directory has insecure permissions or ownership.", path: dir_path, details: details)
-        end
-      else
-        # If it exists, ensure it's valid
-        unless valid_runtime_dir?(dir_path)
-          info = File.info(dir_path.to_s) # Exists, so use info not info?
-          details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}, Expected Owner: #{Process.uid}"
-          Log.error {
-            "Existing runtime directory validation failed. Path: #{dir_path}, Details: #{details}"
-          }
-          raise SecurityError.new("Existing runtime directory is insecure.", path: dir_path, details: details)
-        end
-      end
-    rescue e : File::Error
-      raise DirectoryError.new("Failed to create or access runtime directory #{dir_path}", path: dir_path, cause: e)
-    end
+  begin
+    if Dir.exists?(dir_path.to_s)
+      # Always enforce permissions regardless of existing state
+      File.chmod(dir_path.to_s, 0o700)
 
-    dir_path
+      # Re-validate after enforcing permissions
+      unless valid_runtime_dir?(dir_path)
+        info = File.info(dir_path.to_s)
+        details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
+        raise SecurityError.new("Failed to secure existing runtime directory", path: dir_path, details: details)
+      end
+    else
+      # Create with strict permissions and enforce them again
+      Dir.mkdir_p(dir_path.to_s, 0o700)
+      File.chmod(dir_path.to_s, 0o700) # Redundant but ensures permissions
+      # Re-validate after creation and chmod
+      unless valid_runtime_dir?(dir_path)
+        info = File.info?(dir_path.to_s) # Use info? as creation might have failed subtly
+        details = info ? "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}" : "Could not get info after creation attempt"
+        Log.error {
+          "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}"
+        }
+        raise SecurityError.new("Created runtime directory has insecure permissions or ownership.", path: dir_path, details: details)
+      end
+    end
+  rescue e : File::Error
+    raise DirectoryError.new("Failed to secure runtime directory #{dir_path}", path: dir_path, cause: e)
+  end
+
+  dir_path
   end
 
   # Helper to validate filename components (prevents traversal, empty names)
