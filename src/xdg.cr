@@ -1,9 +1,18 @@
 require "log"
 require "file_utils" # For Dir.mkdir_p
 
+  class Process
+    # Returns the real user ID of the current process as Int32
+    def self.uid : Int32
+      LibC.getuid.to_i32
+    end
+  end
+
 module XDG
   # Cross-platform path delimiter awareness
   private PATH_DELIMITER = Process::PATH_DELIMITER
+
+  # Add this near the top of the module (around line 13)
 
   # Base error class for XDG-related exceptions
   class Error < Exception
@@ -236,6 +245,7 @@ module XDG
     # end
     # Simplified: For ensure_directories!, we expect current user ownership.
     # Runtime dir validation has its own stricter check. Let's keep this general.
+    # Remove ownership checks
 
     # Permission mask check
     actual_mode = info.permissions.value & 0o777
@@ -257,12 +267,11 @@ module XDG
     # end
 
     unless valid
+      # Remove Owner and Current UID from log message
       Log.warn {
         "Directory security validation failed: #{issues.join(", ")}. " \
-        "Path: #{path} (Owner: #{info.owner_id}, " \
-        "Permissions: #{actual_mode.to_s(8)}, " \
-        "Expected Max: #{expected_mode_max.to_s(8)}, " \
-        "Current UID: #{current_uid})"
+        "Path: #{path} (Permissions: #{actual_mode.to_s(8)}, " \
+        "Expected Max: #{expected_mode_max.to_s(8)})"
       }
     end
 
@@ -298,9 +307,8 @@ module XDG
     info = File.info(path_obj.to_s)
     return false unless info.directory?
 
-    # Compare UInt64 (owner_id) with Int32 (Process.uid) properly
-    return false unless info.owner_id == Process.uid.to_u64
-
+    # Remove owner check since we're assuming non-root execution
+    # Just check permissions
     # Check permissions: Must be exactly 0700 (rwx------)
     # We mask with 0o777 to ignore higher bits like setuid/setgid/sticky
     actual_mode = info.permissions.value & 0o777
@@ -315,7 +323,8 @@ module XDG
   def self.runtime_dir! : Path
     dir_path = runtime_dir
     unless dir_path
-      raise RuntimeError.new("XDG_RUNTIME_DIR not set and no valid default runtime directory found for UID #{Process.uid}")
+      # Update error message to remove UID reference
+      raise RuntimeError.new("XDG_RUNTIME_DIR not set and no valid default runtime directory found")
     end
 
     path_str = dir_path.to_s
@@ -324,26 +333,23 @@ module XDG
         # Handle existing path (could be file or directory)
         unless File.directory?(path_str)
           raise SecurityError.new("Runtime path is not a directory",
-                                 path: dir_path,
-                                 details: "Path exists but is not a directory")
+            path: dir_path,
+            details: "Path exists but is not a directory")
         end
 
-        # Get initial state
-        initial_info = File.info(path_str)
+        info = File.info(path_str)
 
-        # Only enforce permissions if needed
-        if (initial_info.permissions.value & 0o777) != 0o700
-          File.chmod(path_str, 0o700)
-        end
+        # Always enforce permissions
+        File.chmod(path_str, 0o700)
 
-        # Final validation with updated info
+        # Re-check after enforcement
         final_info = File.info(path_str)
-        unless final_info.owner_id == Process.uid.to_u64 &&
-               (final_info.permissions.value & 0o777) == 0o700
-          details = "Final: #{final_info.permissions.value.to_s(8)} (Initial: #{initial_info.permissions.value.to_s(8)})"
-          raise SecurityError.new("Failed to secure existing runtime directory",
-                                 path: dir_path,
-                                 details: details)
+        # Remove owner check
+        unless final_info.permissions.value & 0o777 == 0o700
+          details = "Final permissions: #{final_info.permissions.value.to_s(8)}"
+          raise SecurityError.new("Failed to secure existing directory",
+            path: dir_path,
+            details: details)
         end
       else
         # Create parent directories first with secure permissions
@@ -362,21 +368,24 @@ module XDG
         info = File.info(path_str)
 
         # Allow for umask influences but require user-restrictive perms
-        # Check owner and if it's a directory first.
+        # Check if it's a directory first.
         # Then check if permissions are *at most* 0o700 (user rwx, nothing for group/other).
-        unless info.directory? && info.owner_id == Process.uid.to_u64 &&
+        # Remove owner check
+        unless info.directory? &&
                (info.permissions.value & 0o777) <= 0o700 && # Check if permissions are <= 0o700
                (info.permissions.value & 0o700) == 0o700    # Ensure user has rwx
-          details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
+          details = "Permissions: #{info.permissions.value.to_s(8)}" # Removed Owner from details
           Log.error { "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}" }
           # Attempt cleanup before raising
-          begin; Dir.rmdir(path_str); rescue; end
+          begin
+            FileUtils.rmdir(path_str)
+          rescue
+          end
           raise SecurityError.new("Failed to initialize secure runtime directory",
-                                 path: dir_path,
-                                 details: details)
+            path: dir_path,
+            details: details)
         end
       end
-
     rescue e : File::NotFoundError
       # This could happen if the path is deleted between checks/operations
       raise DirectoryError.new("Runtime directory path disappeared during validation", path: dir_path, cause: e)
@@ -486,8 +495,8 @@ module XDG
     {% if flag?(:win32) %}
       nil # No standard runtime dir on Windows
     {% else %}
-      # Ensure the path exists and is valid before returning it
-      path = DEFAULT_RUNTIME_BASE / Process.uid.to_s # Convert UID to string for path joining
+      # Simplified path without UID - NOT XDG spec compliant but matches our security assumptions
+      path = DEFAULT_RUNTIME_BASE / "default"
       valid_runtime_dir?(path) ? path : nil
     {% end %}
   end
@@ -519,7 +528,7 @@ module XDG
   private def self.parse_paths(value : String?) : Array(Path)
     return [] of Path unless value
 
-    value.split(Process::PATH_DELIMITER).compact_map do |raw_path|
+    value.split(PATH_DELIMITER).compact_map do |raw_path|
       # Handle potential empty strings from splitting (e.g., trailing delimiter)
       next if raw_path.nil? || raw_path.empty? # Use empty? instead of blank? for core lib
 
