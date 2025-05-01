@@ -199,32 +199,19 @@ module XDG
     end
   end
 
-  # Ensures all XDG base directories exist with specific permissions (default 0o700).
-  # Raises errors if creation fails or resulting directories are insecure.
-  # @param mode The file mode to use when creating directories.
-  # @raise XDG::DirectoryError if directory creation fails.
-  # @raise XDG::SecurityError if a created/existing directory has insecure permissions.
+  # Ensures base directories exist by creating them if missing with given mode (default 0700).
+  # Existing directories are left unchanged - no permission validation is performed.
+  # @param mode Permissions for newly created directories (has no effect on existing dirs)
+  # @raise XDG::DirectoryError if directory creation fails
   def self.ensure_directories!(mode : Int32 = 0o700)
     [config_home, data_home, cache_home, state_home].each do |dir|
       begin
-        # Only create if it doesn't exist
+        # Only create if it doesn't exist - no validation of existing dirs
         unless Dir.exists?(dir.to_s)
-           Dir.mkdir_p(dir.to_s, mode)
-        end
-        # Validate permissions regardless of creation, using the stricter mode provided
-        unless valid_directory?(dir, mode)
-           # Provide more detail in the SecurityError
-           info = File.info(dir.to_s) # We know it exists here
-           actual_mode = info.permissions.value & 0o777 # Get actual permissions
-           details = "Permissions #{actual_mode.to_s(8)} exceed expected <= #{mode.to_s(8)}"
-           raise SecurityError.new(
-             "Directory #{dir} has insecure permissions (#{details}).",
-             path: dir,
-             details: details
-           )
+          Dir.mkdir_p(dir.to_s, mode)
         end
       rescue e : File::Error
-        raise DirectoryError.new("Failed to create or access directory #{dir}", path: dir, cause: e)
+        raise DirectoryError.new("Failed to create directory #{dir}", path: dir, cause: e)
       end
     end
   end
@@ -379,17 +366,17 @@ module XDG
     end
   end
 
-  # Helper to ensure parent directory exists for a given file path
+  # Helper to ensure parent directory exists before file operations.
+  # Creates missing directories with 0700 permissions when create=true.
+  # @param create When true, creates directory tree with 0700 permissions
+  # @raise XDG::DirectoryError if directory creation fails
   private def self.ensure_parent_dir(path : Path | String, create : Bool)
     return unless create
     path_obj = path.is_a?(Path) ? path : Path.new(path.as(String))
     parent_dir = path_obj.parent
     begin
-      # Check existence first to avoid unnecessary syscalls/potential errors on existing dirs
-      unless Dir.exists?(parent_dir.to_s)
-        Dir.mkdir_p(parent_dir.to_s)
-        # Optional: Add validation after creation if stricter checks are needed
-      end
+      # Use FileUtils.mkdir_p which handles existence check and allows setting mode
+      FileUtils.mkdir_p(parent_dir.to_s, mode: 0o700) # Creates with 0700 if missing
     rescue e : File::Error
       # Use the enhanced DirectoryError
       raise DirectoryError.new("Failed to create directory #{parent_dir}", path: parent_dir, cause: e)

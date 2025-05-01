@@ -19,32 +19,21 @@ dependencies:
 ## Usage
 
 ```crystal
-require "xdg"
+# Creates parent directories with 0700 permissions if missing
+config_file = XDG.app_config_path("myapp.cfg", create: true)
 
-# Access base directories
-config_path = XDG.config_home    # => ~/.config (Linux), ~/Library/Preferences (macOS), etc
-data_path = XDG.data_home        # => ~/.local/share (Linux), ~/Library/Application Support (macOS), etc
-cache_path = XDG.cache_home      # => ~/.cache (Linux), ~/Library/Caches (macOS), etc
+# Writes file with automatic directory creation (0700 for new dirs)
+File.write(config_file, config_data) rescue puts "Save failed"
 
-# Platform-aware path construction
-app_config = XDG.app_config("myapp", "1.0", vendor: "acme")
-# => ~/.config/acme/myapp/1.0 (Linux)
-# => ~/Library/Preferences/acme/myapp/1.0 (macOS App)
-# => %APPDATA%\acme\myapp\1.0 (Windows)
-
-# Ensure directories exist with secure permissions
-XDG.ensure_directories!(0o750)
-
-# Validate runtime directories
-if runtime_dir = XDG.runtime_dir
-  puts "Secure runtime: #{XDG.valid_runtime_dir?(runtime_dir)}"
-end
+# Runtime directory security (must be 0700)
+runtime_dir = XDG.runtime_dir! # Raises if permissions wrong
 ```
 
-**Platform Support**:
-- Linux: Follows XDG spec defaults
-- macOS: Uses native paths unless in strict mode (`XDG_STRICT=true`)
-- Windows: Uses APPDATA/LOCALAPPDATA environment variables
+Key features:
+- Automatic directory creation with 0700 permissions
+- Existing directories remain untouched
+- Strict security checks only for runtime directory
+- Clean error hierarchy (XDG::Error > DirectoryError/SecurityError)
 
 ## Development
 
