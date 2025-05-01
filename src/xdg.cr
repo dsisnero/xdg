@@ -1,14 +1,6 @@
 require "log"
 require "file_utils" # For Dir.mkdir_p
 
-class Process
-
-  def self.uid
-    LibC.getuid.to_s
-  end
-
-end
-     
 module XDG
   # Cross-platform path delimiter awareness
   private PATH_DELIMITER = Process::PATH_DELIMITER
@@ -309,9 +301,8 @@ module XDG
     info = File.info(path_obj.to_s)
     return false unless info.directory?
 
-    # Check ownership using Process.uid (which is String) and info.owner (which is String)
-    # Note: Process.uid returns a String, File::Info#owner returns a String
-    return false unless info.owner == Process.uid
+    # Compare UInt64 (owner_id) with Int32 (Process.uid) properly
+    return false unless info.owner_id == Process.uid.to_u64
 
     # Check permissions: Must be exactly 0700 (rwx------)
     # We mask with 0o777 to ignore higher bits like setuid/setgid/sticky
