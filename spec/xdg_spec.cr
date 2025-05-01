@@ -29,7 +29,7 @@ module SpecHelpers
     yield
   ensure
     XDG_VARS.each do |var|
-      if value = original_env[var]?
+      if value = original_env.not_nil![var]?
         ENV[var] = value
       else
         ENV.delete(var)
