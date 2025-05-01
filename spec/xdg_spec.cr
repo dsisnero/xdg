@@ -8,21 +8,6 @@ module SpecHelpers
     XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_STRICT
   )
 
-  # Helper to run code within a temporary directory
-  def in_temp_dir(&)
-    tempdir = File.join(Dir.tempdir, "xdg_spec_#{Random::Secure.hex(8)}")
-    Dir.mkdir(tempdir)
-
-    begin
-      File.chdir(tempdir) do
-        yield Path.new(tempdir)
-      end
-    ensure
-      # Clean up the temporary directory
-      FileUtils.rm_rf(tempdir) if Dir.exists?(tempdir)
-    end
-  end
-
   # Helper to temporarily modify environment variables
   def with_xdg_clean_env(&)
     original_env = {} of String => String?
