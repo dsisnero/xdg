@@ -36,21 +36,28 @@ describe XDG do
   end
 
   describe "directory management" do
-    it "creates secure directories with correct permissions" do
+    it "creates missing directories without validating existing ones" do
       in_temp_dir do |dir|
         with_xdg_clean_env do
-          ENV["XDG_CONFIG_HOME"] = File.join(dir, "config")
-          ENV["XDG_DATA_HOME"] = File.join(dir, "data")
-          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache")
-          ENV["XDG_STATE_HOME"] = File.join(dir, "state")
+          # Set one existing dir and one new dir
+          existing_data_dir = File.join(dir, "existing_data")
+          Dir.mkdir(existing_data_dir)
+          File.chmod(existing_data_dir, 0o755) # "Wrong" permissions
 
-          XDG.ensure_directories!(0o750)
+          ENV["XDG_CONFIG_HOME"] = File.join(dir, "new_config") # Will be created
+          ENV["XDG_DATA_HOME"] = existing_data_dir # Already exists
+          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache") # New
+          ENV["XDG_STATE_HOME"] = File.join(dir, "state") # New
 
-          [ENV["XDG_CONFIG_HOME"], ENV["XDG_DATA_HOME"], ENV["XDG_CACHE_HOME"], ENV["XDG_STATE_HOME"]].each do |path|
-            info = File.info(path)
-            info.permissions.should eq File::Permissions.new(0o750)
-            info.directory?.should be_true
-          end
+          XDG.ensure_directories!(0o700)
+
+          # Verify NEW directories get requested permissions
+          (File.info(ENV["XDG_CONFIG_HOME"]).permissions.value & 0o777).should eq(0o700)
+          (File.info(ENV["XDG_CACHE_HOME"]).permissions.value & 0o777).should eq(0o700)
+          (File.info(ENV["XDG_STATE_HOME"]).permissions.value & 0o777).should eq(0o700)
+
+          # Verify EXISTING directory kept original permissions
+          (File.info(existing_data_dir).permissions.value & 0o777).should eq(0o755)
         end
       end
     end
@@ -155,40 +162,8 @@ describe XDG do
   end
 
   describe "path security validation" do
-    it "rejects directories with excessive permissions in ensure_directories!" do
-      in_temp_dir do |dir|
-        with_xdg_clean_env do
-          # Only set the problematic directory to isolate the test
-          ENV["XDG_DATA_HOME"] = File.join(dir, "data")
-          # Other XDG vars (CONFIG_HOME, CACHE_HOME, STATE_HOME) are needed by ensure_directories!
-          # but we don't need to assign them specific paths for this test's purpose.
-          # Let them default or be nil, ensure_directories! will handle them.
-          # We only care about the state of XDG_DATA_HOME which we explicitly make insecure.
-          ENV["XDG_CONFIG_HOME"] = File.join(dir, "config") # Still needed for the call
-          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache")   # Still needed for the call
-          ENV["XDG_STATE_HOME"] = File.join(dir, "state")   # Still needed for the call
-
-
-          # Create directory and explicitly set permissions
-          insecure_dir = ENV["XDG_DATA_HOME"]
-          Dir.mkdir(insecure_dir)
-          File.chmod(insecure_dir, 0o777) # <-- Force exact permissions
-
-          # ensure_directories! should check existing dirs too and raise on the insecure one
-          expect_raises(XDG::SecurityError, /Permissions 777 exceed expected <= 700/) do
-            XDG.ensure_directories!(mode: 0o700) # Requesting 700
-          end
-
-          # Only check the problematic directory's permissions remain unchanged (or were not fixed)
-          # The other directories might or might not have been created depending on iteration order.
-          info = File.info(insecure_dir)
-          (info.permissions.value & 0o777).should_not eq(0o700)
-          # Verify it still exists and has the insecure permissions
-          Dir.exists?(insecure_dir).should be_true
-          (info.permissions.value & 0o777).should eq(0o777)
-        end
-      end
-    end
+    # Note: ensure_directories! no longer validates existing directories.
+    # Validation is primarily done by valid_directory? and valid_runtime_dir?
 
     it "rejects world-writable directories via valid_directory?" do
        in_temp_dir do |dir|
@@ -215,6 +190,35 @@ describe XDG do
            puts "Skipping permission max test due to owner mismatch (UID: #{Process.uid}, Owner: #{File.info(test_dir.to_s).owner_id})"
          end
        end
+    end
+  end
+
+  describe "existing directory handling" do
+    it "writes to existing directory with non-0700 permissions" do
+      in_temp_dir do |dir|
+        with_xdg_clean_env do
+          ENV["XDG_CONFIG_HOME"] = File.join(dir, "config")
+          Dir.mkdir(ENV["XDG_CONFIG_HOME"], 0o755) # "Insecure" dir
+
+          path = XDG.app_config_path("test.txt", create: true)
+          File.write(path, "data") # Should succeed despite dir perms
+          File.read(path).should eq("data")
+        end
+      end
+    end
+
+    it "preserves existing directory permissions when creating files" do
+      in_temp_dir do |dir|
+        with_xdg_clean_env do
+          ENV["XDG_CACHE_HOME"] = File.join(dir, "cache")
+          original_mode = 0o755
+          Dir.mkdir(ENV["XDG_CACHE_HOME"], original_mode)
+
+          XDG.app_cache_path("data.bin", create: true)
+          new_mode = File.info(ENV["XDG_CACHE_HOME"]).permissions.value & 0o777
+          new_mode.should eq(original_mode)
+        end
+      end
     end
   end
 
