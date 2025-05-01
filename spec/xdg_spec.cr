@@ -151,10 +151,18 @@ describe XDG do
       end
     ensure
       ENV.delete("XDG_RUNTIME_DIR")
-      # Attempt cleanup, ignore errors if it fails
-      begin
-        File.chmod(runtime_dir, 0o700)
-      rescue
+      # Add nil check and safe navigation
+      # Ensure we only call chmod if runtime_dir was assigned and exists
+      if runtime_dir_path = runtime_dir # Check if variable was assigned
+        begin
+          # Check existence before chmod, as mkdir might have failed
+          if Dir.exists?(runtime_dir_path)
+             File.chmod(runtime_dir_path, 0o700)
+          end
+        rescue ex : File::Error
+          # Ignore cleanup errors
+          Log.debug(exception: ex) { "Ignoring error during test cleanup for #{runtime_dir_path}" }
+        end
       end
     end
   end
