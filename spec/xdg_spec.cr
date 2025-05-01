@@ -72,8 +72,7 @@ describe XDG do
         XDG.runtime_dir!
 
         info = File.info(runtime_dir)
-        actual_mode = info.permissions.value & 0o777
-        actual_mode.should eq(0o700)
+        (info.permissions.value & 0o777).should eq(0o700)
         info.owner_id.should eq(Process.uid.to_u64)
       ensure
         ENV.delete("XDG_RUNTIME_DIR")
@@ -83,10 +82,17 @@ describe XDG do
     it "fixes existing directory permissions" do
       in_temp_dir do |dir|
         runtime_dir = File.join(dir, "existing_runtime")
-        Dir.mkdir(runtime_dir, 0o755)
+        Dir.mkdir(runtime_dir, 0o755) # Create with incorrect permissions
+        # Ensure owner is correct for the test to focus on permissions
+        begin
+          File.chown(runtime_dir, Process.uid.to_i, -1)
+        rescue ex
+          puts "Warning: Could not chown #{runtime_dir} in 'fixes existing directory permissions' test: #{ex.message}"
+        end
+
         ENV["XDG_RUNTIME_DIR"] = runtime_dir
 
-        XDG.runtime_dir!
+        XDG.runtime_dir! # Should fix the permissions
 
         actual_mode = File.info(runtime_dir).permissions.value & 0o777
         actual_mode.should eq(0o700)
@@ -139,7 +145,7 @@ describe XDG do
         File.write(runtime_file, "")
         ENV["XDG_RUNTIME_DIR"] = runtime_file
 
-        expect_raises(XDG::SecurityError) do
+        expect_raises(XDG::SecurityError, /not a directory/) do
           XDG.runtime_dir!
         end
       ensure
@@ -158,10 +164,11 @@ describe XDG do
         # Tamper with permissions *after* the initial successful creation/validation
         File.chmod(runtime_dir, 0o750) # Make it insecure
 
-        # Second call should detect the insecure state and raise SecurityError
-        expect_raises(XDG::SecurityError) do
-          XDG.runtime_dir!
-        end
+        # Second call should fix permissions automatically
+        XDG.runtime_dir!
+
+        actual_mode = File.info(runtime_dir).permissions.value & 0o777
+        actual_mode.should eq(0o700)
       ensure
         ENV.delete("XDG_RUNTIME_DIR")
       end

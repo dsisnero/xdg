@@ -310,40 +310,61 @@ module XDG
   # Returns the XDG_RUNTIME_DIR directory path, creating it if necessary, or raises an error.
   # Ensures the directory exists with 0o700 permissions.
   # @raise RuntimeError if XDG_RUNTIME_DIR is not set and no valid default exists.
-  # @raise XDG::DirectoryError if creation fails.
-  # @raise XDG::SecurityError if the directory exists but is insecure.
+  # @raise XDG::DirectoryError if creation fails or path disappears.
+  # @raise XDG::SecurityError if the path exists but is not a directory, or if the directory cannot be secured.
   def self.runtime_dir! : Path
     dir_path = runtime_dir
     unless dir_path
       raise RuntimeError.new("XDG_RUNTIME_DIR not set and no valid default runtime directory found for UID #{Process.uid}")
     end
 
+    path_str = dir_path.to_s
     begin
-      if Dir.exists?(dir_path.to_s)
-        # Always enforce permissions regardless of existing state
-        File.chmod(dir_path.to_s, 0o700)
+      if File.exists?(path_str)
+        # Handle existing path (could be file or directory)
+        unless File.directory?(path_str)
+          raise SecurityError.new("Runtime path is not a directory",
+                                 path: dir_path,
+                                 details: "Path exists but is not a directory")
+        end
 
-        # Re-validate after enforcing permissions
+        # Always enforce permissions
+        File.chmod(path_str, 0o700)
+
+        # Re-validate after enforcement
+        info = File.info(path_str) # Use info, we know it exists and is a dir
         unless valid_runtime_dir?(dir_path)
-          info = File.info(dir_path.to_s)
           details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
-          raise SecurityError.new("Failed to secure existing runtime directory", path: dir_path, details: details)
+          raise SecurityError.new("Failed to secure existing runtime directory",
+                                 path: dir_path,
+                                 details: details)
         end
       else
-        # Create with strict permissions and enforce them again
-        Dir.mkdir_p(dir_path.to_s, 0o700)
-        File.chmod(dir_path.to_s, 0o700) # Redundant but ensures permissions
-        # Re-validate after creation and chmod
-        unless valid_runtime_dir?(dir_path)
-          info = File.info?(dir_path.to_s) # Use info? as creation might have failed subtly
-          details = info ? "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}" : "Could not get info after creation attempt"
-          Log.error {
-            "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}"
-          }
-          raise SecurityError.new("Created runtime directory has insecure permissions or ownership.", path: dir_path, details: details)
+        # Create new directory with correct permissions
+        # Dir.mkdir_p might not set mode atomically or correctly on all platforms/filesystems
+        # Create parent first if needed, then the final dir
+        parent_dir = dir_path.parent
+        Dir.mkdir_p(parent_dir.to_s) unless Dir.exists?(parent_dir.to_s)
+        Dir.mkdir(path_str, 0o700) # Create the final directory with mode 0700
+        File.chmod(path_str, 0o700) # Ensure permissions are set
+
+        # Immediate validation after creation
+        info = File.info(path_str) # Use info, we just created it
+        unless info.directory? && info.owner_id == Process.uid.to_u64 && (info.permissions.value & 0o777) == 0o700
+          details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
+          # Log the failure details for debugging
+          Log.error { "Runtime directory validation failed immediately after creation. Path: #{dir_path}, Details: #{details}" }
+          raise SecurityError.new("Failed to initialize secure runtime directory",
+                                 path: dir_path,
+                                 details: details)
         end
       end
+
+    rescue e : File::NotFoundError
+      # This could happen if the path is deleted between checks/operations
+      raise DirectoryError.new("Runtime directory path disappeared during validation", path: dir_path, cause: e)
     rescue e : File::Error
+      # Catch other file system errors during chmod, mkdir, info etc.
       raise DirectoryError.new("Failed to secure runtime directory #{dir_path}", path: dir_path, cause: e)
     end
 
