@@ -305,15 +305,18 @@ module XDG
     info = File.info?(path_obj.to_s)
     return false unless info && info.directory?
 
-    current_uid = Process.uid.to_i
-    valid = info.owner_id == current_uid &&
+    # Cast both UIDs to same type (UInt64)
+    current_uid = Process.uid.to_i.to_u64
+    owner_uid = info.owner_id
+
+    valid = owner_uid == current_uid &&
             !info.permissions.other_write? &&
             (info.permissions.value & 0o077) == 0
 
     unless valid
-      puts "\n[DEBUG] Runtime dir validation failed for: #{path_obj}"
-      puts "Owner: #{info.owner_id} (Current: #{current_uid})"
-      puts "Permissions: #{info.permissions.value.to_s(8)}"
+      puts "\n[DEBUG] Validation: #{owner_uid} == #{current_uid}? #{owner_uid == current_uid}"
+      puts "Other writable? #{info.permissions.other_write?}"
+      puts "Extra permissions: #{(info.permissions.value & 0o077).to_s(8)}"
     end
 
     valid

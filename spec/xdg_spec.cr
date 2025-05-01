@@ -83,9 +83,9 @@ describe XDG do
       Dir.mkdir_p(valid_dir, 0o700)
       File.chmod(valid_dir, 0o700)
 
-      # Verify directory state before validation
-      puts "\n[TEST SETUP] Directory permissions: #{File.info(valid_dir).permissions.value.to_s(8)}"
-      puts "[TEST SETUP] Directory owner: #{File.info(valid_dir).owner_id}"
+      # Add explicit check for exact permissions
+      actual_mode = File.info(valid_dir).permissions.value & 0o777
+      actual_mode.should eq(0o700) # Ensures no extra bits set
 
       XDG.valid_runtime_dir?(Path.new(valid_dir)).should be_true
     end
