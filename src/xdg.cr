@@ -328,32 +328,49 @@ module XDG
                                  details: "Path exists but is not a directory")
         end
 
-        # Always enforce permissions
-        File.chmod(path_str, 0o700)
+        # Get initial state
+        initial_info = File.info(path_str)
 
-        # Re-validate after enforcement
-        info = File.info(path_str) # Use info, we know it exists and is a dir
-        unless valid_runtime_dir?(dir_path)
-          details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
+        # Only enforce permissions if needed
+        if (initial_info.permissions.value & 0o777) != 0o700
+          File.chmod(path_str, 0o700)
+        end
+
+        # Final validation with updated info
+        final_info = File.info(path_str)
+        unless final_info.owner_id == Process.uid.to_u64 &&
+               (final_info.permissions.value & 0o777) == 0o700
+          details = "Final: #{final_info.permissions.value.to_s(8)} (Initial: #{initial_info.permissions.value.to_s(8)})"
           raise SecurityError.new("Failed to secure existing runtime directory",
                                  path: dir_path,
                                  details: details)
         end
       else
-        # Create new directory with correct permissions
-        # Dir.mkdir_p might not set mode atomically or correctly on all platforms/filesystems
-        # Create parent first if needed, then the final dir
+        # Create parent directories first with secure permissions
         parent_dir = dir_path.parent
-        Dir.mkdir_p(parent_dir.to_s) unless Dir.exists?(parent_dir.to_s)
-        Dir.mkdir(path_str, 0o700) # Create the final directory with mode 0700
-        File.chmod(path_str, 0o700) # Ensure permissions are set
+        if !Dir.exists?(parent_dir.to_s)
+          # Note: mkdir_p doesn't guarantee mode on intermediate dirs, but we need the parent to exist.
+          # We rely on the final Dir.mkdir for the target dir's mode.
+          # A more robust approach might involve checking/setting parent perms if needed.
+          Dir.mkdir_p(parent_dir.to_s) # Use default mode for intermediate dirs
+        end
 
-        # Immediate validation after creation
-        info = File.info(path_str) # Use info, we just created it
-        unless info.directory? && info.owner_id == Process.uid.to_u64 && (info.permissions.value & 0o777) == 0o700
+        # Create the final directory with correct permissions atomically
+        Dir.mkdir(path_str, 0o700)
+
+        # Single source of truth for directory info
+        info = File.info(path_str)
+
+        # Allow for umask influences but require user-restrictive perms
+        # Check owner and if it's a directory first.
+        # Then check if permissions are *at most* 0o700 (user rwx, nothing for group/other).
+        unless info.directory? && info.owner_id == Process.uid.to_u64 &&
+               (info.permissions.value & 0o777) <= 0o700 && # Check if permissions are <= 0o700
+               (info.permissions.value & 0o700) == 0o700    # Ensure user has rwx
           details = "Permissions: #{info.permissions.value.to_s(8)}, Owner: #{info.owner_id}"
-          # Log the failure details for debugging
-          Log.error { "Runtime directory validation failed immediately after creation. Path: #{dir_path}, Details: #{details}" }
+          Log.error { "Runtime directory validation failed after creation. Path: #{dir_path}, Details: #{details}" }
+          # Attempt cleanup before raising
+          begin; Dir.rmdir(path_str); rescue; end
           raise SecurityError.new("Failed to initialize secure runtime directory",
                                  path: dir_path,
                                  details: details)

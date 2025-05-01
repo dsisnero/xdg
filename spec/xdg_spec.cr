@@ -158,15 +158,18 @@ describe XDG do
         runtime_dir = File.join(dir, "creation_test")
         ENV["XDG_RUNTIME_DIR"] = runtime_dir
 
-        # First call creates and validates
+        # First creation
+        XDG.runtime_dir!
+        (File.info(runtime_dir).permissions.value & 0o777).should eq(0o700) # Verify initial state
+
+        # Tamper with permissions
+        File.chmod(runtime_dir, 0o750)
+        (File.info(runtime_dir).permissions.value & 0o777).should eq(0o750) # Verify tamper
+
+        # Second access should self-heal
         XDG.runtime_dir!
 
-        # Tamper with permissions *after* the initial successful creation/validation
-        File.chmod(runtime_dir, 0o750) # Make it insecure
-
-        # Second call should fix permissions automatically
-        XDG.runtime_dir!
-
+        # Verify final state
         actual_mode = File.info(runtime_dir).permissions.value & 0o777
         actual_mode.should eq(0o700)
       ensure
