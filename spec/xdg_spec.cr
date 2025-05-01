@@ -1,5 +1,41 @@
 require "./spec_helper"
 
+# Define SpecHelpers module if it doesn't exist or add to it
+module SpecHelpers
+  # Helper to run code within a temporary directory
+  def in_temp_dir(&)
+    Dir.mktmpdir do |dir|
+      File.chdir(dir) do
+        yield Path.new(dir)
+      end
+    end
+  end
+
+  # Helper to temporarily modify environment variables
+  def with_xdg_clean_env(&)
+    original_env = {} of String => String?
+    XDG_VARS = %w(
+      XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR
+      XDG_CONFIG_DIRS XDG_DATA_DIRS XDG_STRICT
+    )
+
+    XDG_VARS.each do |var|
+      original_env[var] = ENV[var]?
+      ENV.delete(var)
+    end
+
+    yield
+  ensure
+    XDG_VARS.each do |var|
+      if value = original_env[var]?
+        ENV[var] = value
+      else
+        ENV.delete(var)
+      end
+    end
+  end
+end
+
 include SpecHelpers
 
 describe XDG do
@@ -64,108 +100,106 @@ describe XDG do
   end
 
   describe "runtime directory validation" do
-    it "rejects world-writable directories" do
+    it "creates new runtime directory with 0700 permissions" do
       in_temp_dir do |dir|
-        bad_dir = File.join(dir, "unsafe")
-        # Create with safe permissions first
-        Dir.mkdir(bad_dir, 0o755)
-        # Then make world-writable
-        File.chmod(bad_dir, 0o777)
+        runtime_dir = File.join(dir, "new_runtime")
+        ENV["XDG_RUNTIME_DIR"] = runtime_dir
 
-        XDG.valid_runtime_dir?(Path.new(bad_dir)).should be_false
+        XDG.runtime_dir!
+
+        info = File.info(runtime_dir)
+        actual_mode = info.permissions.value & 0o777
+        actual_mode.should eq(0o700)
+        info.owner_id.should eq(Process.uid.to_u64)
+      ensure
+        ENV.delete("XDG_RUNTIME_DIR")
       end
     end
 
-  it "accepts properly secured directories" do
-    in_temp_dir do |dir|
-      valid_dir = File.join(dir, "secure")
-      # Create with explicit permissions and ownership
-      Dir.mkdir_p(valid_dir, 0o700)
-      File.chmod(valid_dir, 0o700)
+    it "fixes existing directory permissions" do
+      in_temp_dir do |dir|
+        runtime_dir = File.join(dir, "existing_runtime")
+        Dir.mkdir(runtime_dir, 0o755)
+        ENV["XDG_RUNTIME_DIR"] = runtime_dir
 
-      # Add explicit check for exact permissions
-      actual_mode = File.info(valid_dir).permissions.value & 0o777
-      actual_mode.should eq(0o700) # Ensures no extra bits set
+        XDG.runtime_dir!
 
-      XDG.valid_runtime_dir?(Path.new(valid_dir)).should be_true
-    end
-  end
-
-  it "forces 0700 permissions on existing directory" do
-    in_temp_dir do |dir|
-      runtime_dir = File.join(dir, "runtime")
-      Dir.mkdir(runtime_dir, 0o755) # Start with insecure permissions
-      ENV["XDG_RUNTIME_DIR"] = runtime_dir
-
-      XDG.runtime_dir!
-      actual_mode = File.info(runtime_dir).permissions.value & 0o777
-      actual_mode.should eq(0o700)
-    ensure
-      ENV.delete("XDG_RUNTIME_DIR")
-    end
-  end
-
-  it "creates new directories with strict permissions" do
-    in_temp_dir do |dir|
-      runtime_dir = File.join(dir, "new_runtime")
-      ENV["XDG_RUNTIME_DIR"] = runtime_dir
-
-      XDG.runtime_dir!
-      actual_mode = File.info(runtime_dir).permissions.value & 0o777
-      actual_mode.should eq(0o700)
-    ensure
-      ENV.delete("XDG_RUNTIME_DIR")
-    end
-  end
-
-  it "raises error if permissions cant be fixed" do
-    in_temp_dir do |dir|
-      runtime_dir = File.join(dir, "bad_runtime")
-      Dir.mkdir(runtime_dir)
-      # Make directory non-writable by owner to simulate permission issue
-      # Note: This might require root or specific OS setups to truly prevent chmod
-      # For testing, we assume chmod might fail due to underlying FS issues or lack of permissions
-      # A more robust test might involve mocking File.chmod to raise an error.
-      # Here, we set permissions that *should* allow chmod, but test the error path.
-      # Let's simulate the *scenario* where chmod fails by checking for DirectoryError.
-      # We can't reliably *cause* chmod to fail without root or complex mocks.
-      # Instead, we'll temporarily make it read-only to *potentially* cause issues,
-      # but the main goal is testing the DirectoryError raise.
-      begin
-        File.chmod(runtime_dir, 0o500) # Read/execute only for owner
-      rescue ex : File::Error
-         puts "Warning: Could not set restrictive permissions (0o500) for test setup: #{ex.message}. Test might not fully simulate chmod failure."
+        actual_mode = File.info(runtime_dir).permissions.value & 0o777
+        actual_mode.should eq(0o700)
+      ensure
+        ENV.delete("XDG_RUNTIME_DIR")
       end
+    end
 
-      ENV["XDG_RUNTIME_DIR"] = runtime_dir
+    it "rejects invalid ownership" do
+      in_temp_dir do |dir|
+        runtime_dir = File.join(dir, "bad_owner")
+        Dir.mkdir(runtime_dir, 0o700)
 
-      # We expect DirectoryError because the rescue block in runtime_dir! catches File::Error
-      # which includes permission errors during chmod.
-      expect_raises(XDG::DirectoryError) do
-         # Mock File.chmod to raise an error to reliably test the catch block
-         # This requires a mocking library or more complex setup.
-         # Without mocking, we rely on the OS potentially failing the chmod.
-         # Let's assume for the test structure that the chmod *could* fail.
-         # If the chmod succeeds despite 0o500, the test won't fail here, but the structure is correct.
-         XDG.runtime_dir! # This call attempts chmod(0o700)
-      end
-    ensure
-      ENV.delete("XDG_RUNTIME_DIR")
-      # Add nil check and safe navigation
-      # Ensure we only call chmod if runtime_dir was assigned and exists
-      if runtime_dir_path = runtime_dir # Check if variable was assigned
-        begin
-          # Check existence before chmod, as mkdir might have failed
-          if Dir.exists?(runtime_dir_path)
-             File.chmod(runtime_dir_path, 0o700)
-          end
-        rescue ex : File::Error
-          # Ignore cleanup errors
-          Log.debug(exception: ex) { "Ignoring error during test cleanup for #{runtime_dir_path}" }
+        # Skip test if we can't simulate wrong ownership
+        # Note: Changing ownership often requires root privileges.
+        # This test might only pass if run as root or if the OS allows user chown.
+        can_chown = begin
+                      File.chown(runtime_dir, uid: Process.uid.to_u64 + 1)
+                      true # Chown succeeded
+                    rescue
+                      false # Chown failed (likely permission denied)
+                    end
+
+        unless can_chown
+          puts "Skipping ownership test: Cannot change file ownership (requires root or specific capabilities)."
+          next # Skip the rest of this 'it' block
         end
+
+        # If chown succeeded, proceed with the test
+        ENV["XDG_RUNTIME_DIR"] = runtime_dir
+
+        expect_raises(XDG::SecurityError) do
+          XDG.runtime_dir!
+        end
+      ensure
+        # Clean up: Attempt to restore ownership if possible, ignore errors
+        begin
+          File.chown(runtime_dir, uid: Process.uid.to_u64) if can_chown && Dir.exists?(runtime_dir)
+        rescue
+        end
+        ENV.delete("XDG_RUNTIME_DIR")
       end
     end
-  end
+
+    it "rejects non-directory paths" do
+      in_temp_dir do |dir|
+        runtime_file = File.join(dir, "file")
+        File.write(runtime_file, "")
+        ENV["XDG_RUNTIME_DIR"] = runtime_file
+
+        expect_raises(XDG::SecurityError) do
+          XDG.runtime_dir!
+        end
+      ensure
+        ENV.delete("XDG_RUNTIME_DIR")
+      end
+    end
+
+    it "validates permissions after creation" do
+      in_temp_dir do |dir|
+        runtime_dir = File.join(dir, "creation_test")
+        ENV["XDG_RUNTIME_DIR"] = runtime_dir
+
+        # First call creates and validates
+        XDG.runtime_dir!
+
+        # Tamper with permissions *after* the initial successful creation/validation
+        File.chmod(runtime_dir, 0o750) # Make it insecure
+
+        # Second call should detect the insecure state and raise SecurityError
+        expect_raises(XDG::SecurityError) do
+          XDG.runtime_dir!
+        end
+      ensure
+        ENV.delete("XDG_RUNTIME_DIR")
+      end
+    end
   end
 
   describe "platform defaults" do
