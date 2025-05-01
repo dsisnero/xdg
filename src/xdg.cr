@@ -302,24 +302,21 @@ module XDG
   # Validates if a runtime directory meets XDG security requirements
   def self.valid_runtime_dir?(path : Path | String) : Bool
     path_obj = path.is_a?(Path) ? path : Path.new(path.as(String))
-    info = File.info?(path_obj.to_s)
-    return false unless info && info.directory?
+    # Use Dir.exists? first as File.info will raise if path doesn't exist
+    return false unless Dir.exists?(path_obj.to_s)
 
-    # Cast both UIDs to same type (UInt64)
-    current_uid = Process.uid.to_i.to_u64
-    owner_uid = info.owner_id
+    # Now we know it exists, use File.info (not info?)
+    info = File.info(path_obj.to_s)
+    return false unless info.directory?
 
-    valid = owner_uid == current_uid &&
-            !info.permissions.other_write? &&
-            (info.permissions.value & 0o077) == 0
+    # Check ownership using Process.uid (which is String) and info.owner (which is String)
+    # Note: Process.uid returns a String, File::Info#owner returns a String
+    return false unless info.owner == Process.uid
 
-    unless valid
-      puts "\n[DEBUG] Validation: #{owner_uid} == #{current_uid}? #{owner_uid == current_uid}"
-      puts "Other writable? #{info.permissions.other_write?}"
-      puts "Extra permissions: #{(info.permissions.value & 0o077).to_s(8)}"
-    end
-
-    valid
+    # Check permissions: Must be exactly 0700 (rwx------)
+    # We mask with 0o777 to ignore higher bits like setuid/setgid/sticky
+    actual_mode = info.permissions.value & 0o777
+    return actual_mode == 0o700
   end
 
 
