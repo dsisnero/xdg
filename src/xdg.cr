@@ -41,6 +41,7 @@ module XDG
   DEFAULT_DATA_DIRS_STR   = "/usr/local/share:/usr/share"
   # Note: These are parsed into Array(Path) by config_dirs/data_dirs methods
   # Note: Default runtime dir needs UID, handled in default_runtime_dir
+  DEFAULT_RUNTIME_BASE    = Path["/run/user"] # Default base for runtime directories on Unix-like systems
 
   # Constants for platform-specific paths (macOS, Windows)
   MACOS_APP_SUPPORT    = Path.home / "Library" / "Application Support"
@@ -442,7 +443,7 @@ module XDG
       nil # No standard runtime dir on Windows
     {% else %}
       # Ensure the path exists and is valid before returning it
-      path = DEFAULT_RUNTIME_BASE / Process.uid
+      path = DEFAULT_RUNTIME_BASE / Process.uid.to_s # Convert UID to string for path joining
       valid_runtime_dir?(path) ? path : nil
     {% end %}
   end
