@@ -355,12 +355,23 @@ module XDG
   dir_path
   end
 
-  # Helper to validate filename components (prevents traversal, empty names)
+  # Helper to validate relative path components (prevents traversal, empty names, absolute paths)
   private def self.validate_filename!(file_name : String)
-    # Check for empty string, directory traversal, and absolute paths
-    if file_name.empty? || file_name.includes?("..") || file_name.includes?('/') || file_name.includes?('\\')
-      raise ArgumentError.new("Invalid file name component: #{file_name}")
+    # Check for empty string, directory traversal, and absolute paths (both / and \)
+    if file_name.empty? || file_name.includes?("..") || file_name.starts_with?('/') || file_name.starts_with?('\\')
+      raise ArgumentError.new("Invalid relative file name component: #{file_name}")
     end
+    # Also check for internal path separators, as the component should be relative
+    # within its base directory (e.g., "subdir/file.txt" is okay, but "/" or "\" shouldn't be *leading*)
+    # The safe_join handles internal separators correctly, but let's be explicit about the input intent.
+    # Re-evaluating this: `app_config_path("subdir/file.txt")` should be valid.
+    # The check should prevent `../`, `/abs/path`, `\\abs\\path`, and empty strings.
+    # The current check `file_name.includes?('/') || file_name.includes?('\\')` was too strict.
+    # Let's refine it to only disallow *leading* separators and '..'.
+    # The check `file_name.starts_with?('/') || file_name.starts_with?('\\')` handles absolute paths.
+    # The check `file_name.includes?("..")` handles traversal.
+    # The check `file_name.empty?` handles empty input.
+    # The original check `file_name.includes?('/') || file_name.includes?('\\')` is removed.
   end
 
   # Helper to ensure parent directory exists before file operations.

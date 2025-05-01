@@ -10,10 +10,16 @@ module SpecHelpers
 
   # Helper to run code within a temporary directory
   def in_temp_dir(&)
-    Dir.mktmpdir do |dir|
-      File.chdir(dir) do
-        yield Path.new(dir)
+    tempdir = File.join(Dir.tempdir, "xdg_spec_#{Random::Secure.hex(8)}")
+    Dir.mkdir(tempdir)
+
+    begin
+      File.chdir(tempdir) do
+        yield Path.new(tempdir)
       end
+    ensure
+      # Clean up the temporary directory
+      FileUtils.rm_rf(tempdir) if Dir.exists?(tempdir)
     end
   end
 

@@ -40,24 +40,6 @@ module SpecHelpers
       # Just log the argument error.
       puts "Warning: Invalid arguments for chown on #{path}: #{ex.message}"
     end
-  end
-
-
-  # Creates a temporary directory within spec/tmp and cleans up after
-  def in_temp_dir(&)
-    base_temp_dir = File.join("spec", "tmp")
-    Dir.mkdir_p(base_temp_dir) unless Dir.exists?(base_temp_dir)
-    
-    # Use absolute path to avoid directory resolution issues
-    temp_dir = File.expand_path(File.join(base_temp_dir, Random::Secure.hex(8)))
-    Dir.mkdir_p(temp_dir)
-    
-    begin
-      Dir.cd(temp_dir) { yield(temp_dir) }
-    ensure
-      FileUtils.rm_rf(temp_dir)
-    end
-  end
 
   def with_env(vars : Hash(String, String), &)
     original = {} of String => String?
